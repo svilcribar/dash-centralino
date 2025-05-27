@@ -1,0 +1,53 @@
+# 📱 Centralino Dashboard (Streamlit + Google Sheets)
+
+Dashboard interattiva per analizzare le chiamate ricevute da un centralino, con dati collegati a un Google Sheet.
+
+## ✨ Funzionalità
+- Analisi chiamate per giorno, ora, settimana
+- Statistiche su chiamate risposte e non
+- Analisi per operatore
+- Studio del comportamento dei richiamanti
+
+## 📂 Requisiti
+- Python 3.8+
+- Account GitHub + Google (per usare Streamlit Cloud)
+
+## 🚀 Come pubblicare la dashboard
+
+### 1. Clona o carica questo repository su GitHub
+Assicurati che i file `app.py` e `requirements.txt` siano presenti.
+
+### 2. Prepara il Google Sheet
+- Carica i dati in un Google Sheet con intestazioni come: `start_datetime`, `answer_datetime`, `end_datetime`, `caller`, `answered_by`, `conversationTime`
+- Condividi il foglio in **sola lettura pubblica**, oppure con l’email della tua app Streamlit (es. `your-app-name@streamlitusers.com`)
+- Ottieni il link CSV del foglio con questo formato:
+
+  ```
+  https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv
+  ```
+
+### 3. Vai su [streamlit.io/cloud](https://streamlit.io/cloud)
+- Accedi con il tuo account GitHub
+- Collega il repository GitHub che contiene la dashboard
+- Scegli `app.py` come file principale
+
+### 4. (Facoltativo) Personalizza il file `app.py`
+Se cambi il link del Google Sheet, aggiorna la riga:
+```python
+sheet_url = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/export?format=csv"
+```
+
+## ✅ Esempio di Deploy
+Una volta pubblicata, otterrai un link come:
+```
+https://centralino-dashboard.streamlit.app/
+```
+
+## 🔒 Sicurezza
+- I dati restano in Google Sheets
+- Nessuna scrittura viene fatta sul foglio
+- Puoi rimuovere o modificare i permessi al foglio in qualsiasi momento
+
+---
+
+Realizzato con ❤️ da [OpenAI + Streamlit]
