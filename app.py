@@ -1,70 +1,90 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
 
-# Configurazione pagina
 st.set_page_config(page_title="Dashboard Centralino", layout="wide")
-st.title("📱 Dashboard Chiamate Centralino")
 
-# URL pubblico Google Sheets CSV export (modifica il link con il tuo ID foglio)
+# URL al foglio Google Sheets esportato come CSV
 sheet_url = "https://docs.google.com/spreadsheets/d/1QbYg-2NgpzfoGB-jI0Rm8CJvS6dvK2nVLst52Z3P7os/export?format=csv"
 
 @st.cache_data
-def load_data(url):
-    df = pd.read_csv(url, parse_dates=['start_datetime', 'answer_datetime', 'end_datetime'])
-    df['answered'] = df['answer_datetime'].notna()
-    df['wait_time'] = (df['answer_datetime'] - df['start_datetime']).dt.total_seconds()
-    df['date'] = df['start_datetime'].dt.date
-    df['hour'] = df['start_datetime'].dt.hour
-    df['weekday'] = df['start_datetime'].dt.day_name()
+def load_data():
+    df = pd.read_csv(sheet_url, parse_dates=["start_datetime", "answer_datetime", "end_datetime"])
     return df
 
-df = load_data(sheet_url)
+df = load_data()
 
-# KPI
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Totale chiamate", len(df))
-col2.metric("Chiamate risposte", df['answered'].sum())
-col3.metric("Non risposte", (~df['answered']).sum())
-col4.metric("Chiamanti unici", df['caller'].nunique())
+st.title("📞 Dashboard Centralino")
+st.markdown("Analisi delle chiamate ricevute dal centralino")
 
-# Grafici principali
-st.subheader("🌇 Chiamate per ora del giorno")
-calls_per_hour = df.groupby('hour').size()
-st.bar_chart(calls_per_hour)
+# Preprocessing
+col1, col2 = st.columns(2)
+with col1:
+    st.metric("Totale chiamate", len(df))
+    st.metric("Chiamate risposte", df['answer_datetime'].notna().sum())
+    st.metric("Chiamate non risposte", df['answer_datetime'].isna().sum())
 
-st.subheader("🌌 Chiamate per giorno della settimana")
-calls_per_weekday = df['weekday'].value_counts().reindex([
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
-])
-st.bar_chart(calls_per_weekday)
+with col2:
+    chiamanti_unici = df['caller'].nunique()
+    st.metric("Numeri unici chiamanti", chiamanti_unici)
+    media_attesa = (df['answer_datetime'] - df['start_datetime']).dropna().mean()
+    st.metric("Tempo medio di attesa", f"{media_attesa.seconds//60} min {media_attesa.seconds%60} sec")
 
-st.subheader("🕒 Tempo medio di attesa per ora")
-wait_by_hour = df.groupby('hour')['wait_time'].mean()
-st.line_chart(wait_by_hour)
+# Chiamate per giorno
+df['giorno'] = df['start_datetime'].dt.date
+chiamate_giornaliere = df.groupby('giorno').size()
+st.line_chart(chiamate_giornaliere, use_container_width=True)
 
-st.subheader("💼 Analisi per Operatore")
-answered_df = df[df['answered'] & df['answered_by'].notna()]
-operator_stats = answered_df.groupby('answered_by').agg(
-    numero_chiamate=('answered_by', 'count'),
-    tempo_totale_conversazione=('conversationTime', 'sum'),
-    tempo_medio_conversazione=('conversationTime', 'mean'),
-    tempo_medio_attesa=('wait_time', 'mean')
-).reset_index()
-operator_stats['tempo_totale_conversazione'] /= 60  # minuti
-st.dataframe(operator_stats)
+# Analisi per operatore
+st.subheader("📊 Analisi per operatore")
+risposte = df[df['answer_datetime'].notna()]
+operatore_stats = risposte.groupby('answered_by').agg(
+    chiamate=('caller', 'count'),
+    durata_media=('conversationTime', 'mean')
+)
+st.dataframe(operatore_stats)
 
-# Richiamanti
-st.subheader("👥 Analisi dei richiamanti")
-df_sorted = df.sort_values(['caller', 'start_datetime'])
-df_sorted['next_call_time'] = df_sorted.groupby('caller')['start_datetime'].shift(-1)
-df_sorted['time_to_next_call'] = (df_sorted['next_call_time'] - df_sorted['end_datetime']).dt.total_seconds()
-df_sorted['got_answer_later'] = df_sorted.groupby('caller')['answered'].transform(lambda x: x.cumsum().shift(-1, fill_value=0))
-time_to_answer_after_missed = df_sorted[(~df_sorted['answered']) & (df_sorted['got_answer_later'] > 0)]['time_to_next_call'].dropna()
+fig1, ax1 = plt.subplots()
+operatore_stats['chiamate'].plot(kind='bar', ax=ax1, color='lightgreen')
+ax1.set_ylabel("N. chiamate")
+ax1.set_title("Numero di chiamate per operatore")
+st.pyplot(fig1)
 
-if not time_to_answer_after_missed.empty:
-    st.markdown("**Distribuzione tempo alla richiamata con risposta (in minuti):**")
-    st.hist(time_to_answer_after_missed / 60, bins=30)
+# Analisi richiamanti
+st.subheader("🔁 Analisi dei richiamanti")
+ripetizioni = df.groupby('caller').size().value_counts().sort_index()
+fig2, ax2 = plt.subplots()
+ripetizioni.plot(kind='bar', ax=ax2, color='lightcoral')
+ax2.set_xlabel("Numero di chiamate effettuate")
+ax2.set_ylabel("Numero di chiamanti")
+ax2.set_title("Distribuzione dei richiamanti")
+st.pyplot(fig2)
+
+# Analisi tempo prima della risposta dopo una chiamata non risolta
+st.subheader("⏱️ Tempo medio prima che una chiamata persa venga richiamata")
+df_sorted = df.sort_values(by=['caller', 'start_datetime'])
+df_sorted['answered'] = df_sorted['answer_datetime'].notna()
+
+rows = []
+for caller, group in df_sorted.groupby('caller'):
+    last_missed = None
+    for _, row in group.iterrows():
+        if not row['answered']:
+            last_missed = row['start_datetime']
+        elif last_missed:
+            delta = (row['start_datetime'] - last_missed).total_seconds()
+            rows.append(delta)
+            last_missed = None
+
+if rows:
+    time_to_answer_after_missed = pd.Series(rows)
+    fig3, ax3 = plt.subplots()
+    ax3.hist(time_to_answer_after_missed / 60, bins=30, color='skyblue', edgecolor='black')
+    ax3.set_title("Tempo prima di risposta dopo una chiamata persa (minuti)")
+    ax3.set_xlabel("Minuti")
+    ax3.set_ylabel("Numero di chiamate")
+    st.pyplot(fig3)
 else:
-    st.info("Non ci sono abbastanza dati per questa analisi.")
+    st.info("Non ci sono dati sufficienti per questa analisi.")
