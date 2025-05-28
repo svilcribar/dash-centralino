@@ -60,13 +60,18 @@ day_map = {
     'Monday': 'Lunedì', 'Tuesday': 'Martedì', 'Wednesday': 'Mercoledì',
     'Thursday': 'Giovedì', 'Friday': 'Venerdì', 'Saturday': 'Sabato', 'Sunday': 'Domenica'
 }
-df['weekday'] = df['weekday'].map(day_map)
 
-# Grafico chiamate per giorno della settimana
-calls_per_weekday = df['weekday'].value_counts().reindex(
-    ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica']
-).fillna(0)
+# Giorni ordinati
+ordered_days = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica']
 
+# Aggiungi giorno della settimana (ordinato)
+df['weekday'] = df['startTime'].dt.day_name().map(day_map)
+df['weekday'] = pd.Categorical(df['weekday'], categories=ordered_days, ordered=True)
+
+# Conta chiamate per giorno della settimana ordinato
+calls_per_weekday = df['weekday'].value_counts().sort_index()
+
+# Grafico
 st.subheader("📅 Chiamate per giorno della settimana")
 st.bar_chart(calls_per_weekday)
 
