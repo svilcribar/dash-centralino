@@ -39,20 +39,6 @@ df = df[
     (df['detailDestinationName'].isin(selected_destinations))
 ]
 
-# KPI: Percentuale utenti che richiamano dopo una NOTSERVED e ottengono SERVED
-incoming_calls = df[df['direction'] == 'IN'].copy()
-incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
-
-results = []
-for caller, group in incoming_calls.groupby('callerId'):
-    statuses = group['status'].tolist()
-    if 'NOTSERVED' in statuses and 'SERVED' in statuses:
-        results.append(1)
-    else:
-        results.append(0)
-
-percent_recall_success = 100 * sum(results) / len(results) if results else 0
-st.metric("📈 % utenti che richiamano dopo NOTSERVED e ricevono risposta", f"{percent_recall_success:.1f}%")
 
 # Giorno della settimana tradotto
 df['weekday'] = df['startTime'].dt.day_name()
@@ -67,18 +53,6 @@ ordered_days = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sa
 # Aggiungi giorno della settimana (ordinato)
 df['weekday'] = df['startTime'].dt.day_name().map(day_map)
 df['weekday'] = pd.Categorical(df['weekday'], categories=ordered_days, ordered=True)
-
-# Conta chiamate per giorno della settimana ordinato
-calls_per_weekday = df['weekday'].value_counts().sort_index()
-
-# Grafico
-st.subheader("📅 Chiamate per giorno della settimana")
-st.bar_chart(calls_per_weekday)
-
-# Grafico risposte vs non risposte per giorno della settimana
-st.subheader("📅 Risposte vs Non risposte per giorno della settimana")
-status_per_weekday = df.groupby(['weekday', 'status']).size().unstack(fill_value=0).loc[ordered_days]
-st.bar_chart(status_per_weekday)
 
 # Header
 st.title("📊 Dashboard Centralino CRI")
@@ -103,6 +77,33 @@ col1.metric("Chiamanti unici", f"{unique_callers:,}")
 col2.metric("Minuti di conversazione", f"{total_conversation_min} min")
 
 st.metric("⏱️ Attesa media", f"{avg_waiting_time_min} min")
+
+# KPI: Percentuale utenti che richiamano dopo una NOTSERVED e ottengono SERVED
+incoming_calls = df[df['direction'] == 'IN'].copy()
+incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
+
+results = []
+for caller, group in incoming_calls.groupby('callerId'):
+    statuses = group['status'].tolist()
+    if 'NOTSERVED' in statuses and 'SERVED' in statuses:
+        results.append(1)
+    else:
+        results.append(0)
+
+percent_recall_success = 100 * sum(results) / len(results) if results else 0
+st.metric("📈 % utenti che richiamano dopo NOTSERVED e ricevono risposta", f"{percent_recall_success:.1f}%")
+
+# Conta chiamate per giorno della settimana ordinato
+calls_per_weekday = df['weekday'].value_counts().sort_index()
+
+# Grafico
+st.subheader("📅 Chiamate per giorno della settimana")
+st.bar_chart(calls_per_weekday)
+
+# Grafico risposte vs non risposte per giorno della settimana
+st.subheader("📅 Risposte vs Non risposte per giorno della settimana")
+status_per_weekday = df.groupby(['weekday', 'status']).size().unstack(fill_value=0).loc[ordered_days]
+st.bar_chart(status_per_weekday)
 
 # Grafico chiamate per ora del giorno
 st.subheader("📈 Chiamate per ora del giorno")
