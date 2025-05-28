@@ -30,6 +30,12 @@ df = df[
     (df['detailDestinationName'].isin(selected_destinations))
 ]
 
+# Escludi callerId con più di 30 chiamate in un mese
+df['year_month'] = df['startTime'].dt.to_period('M')
+monthly_counts = df.groupby(['callerId', 'year_month']).size().reset_index(name='calls')
+excessive_callers = monthly_counts[monthly_counts['calls'] > 30]['callerId'].unique()
+df = df[~df['callerId'].isin(excessive_callers)]
+
 # Giorni e ore
 day_map = {'Monday': 'Lunedì', 'Tuesday': 'Martedì', 'Wednesday': 'Mercoledì', 'Thursday': 'Giovedì', 'Friday': 'Venerdì', 'Saturday': 'Sabato', 'Sunday': 'Domenica'}
 ordered_days = list(day_map.values())
