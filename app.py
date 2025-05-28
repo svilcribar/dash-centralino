@@ -8,57 +8,40 @@ from datetime import datetime
 def load_data():
     sheet_id = "1Vq7n1KaJzm_14lMrtkgzS9lkBgZ-1ddIZiwkPO9r7zE"
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-
-    # Colonne da interpretare come date
-    date_columns = [
-        "startTime", "answerTime", "endTime",
-        "detailEnterTime", "detailAnswerTime", "detailExitTime"
-    ]
-
+    date_columns = ["startTime", "answerTime", "endTime", "detailEnterTime", "detailAnswerTime", "detailExitTime"]
     df = pd.read_csv(sheet_url, parse_dates=date_columns)
     return df
 
-# Carica i dati
 df = load_data()
 
-# Filtro: intervallo di date
+# ------------------------ FILTRI ------------------------
 st.sidebar.header("🔍 Filtri")
 
 min_date = df['startTime'].min().date()
 max_date = df['startTime'].max().date()
 start_date, end_date = st.sidebar.date_input("📅 Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-# Filtro: destinazione
 destinations = df['detailDestinationName'].dropna().unique()
 selected_destinations = st.sidebar.multiselect("🎯 Destinazioni", sorted(destinations), default=sorted(destinations))
 
-# Applica i filtri
 df = df[
     (df['startTime'].dt.date >= start_date) &
     (df['startTime'].dt.date <= end_date) &
     (df['detailDestinationName'].isin(selected_destinations))
 ]
 
+# Giorni e ore
+day_map = {'Monday': 'Lunedì', 'Tuesday': 'Martedì', 'Wednesday': 'Mercoledì', 'Thursday': 'Giovedì', 'Friday': 'Venerdì', 'Saturday': 'Sabato', 'Sunday': 'Domenica'}
+ordered_days = list(day_map.values())
 
-# Giorno della settimana tradotto
-df['weekday'] = df['startTime'].dt.day_name()
-day_map = {
-    'Monday': 'Lunedì', 'Tuesday': 'Martedì', 'Wednesday': 'Mercoledì',
-    'Thursday': 'Giovedì', 'Friday': 'Venerdì', 'Saturday': 'Sabato', 'Sunday': 'Domenica'
-}
+df['weekday'] = pd.Categorical(df['startTime'].dt.day_name().map(day_map), categories=ordered_days, ordered=True)
+df['hour'] = df['startTime'].dt.hour
 
-# Giorni ordinati
-ordered_days = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica']
-
-# Aggiungi giorno della settimana (ordinato)
-df['weekday'] = df['startTime'].dt.day_name().map(day_map)
-df['weekday'] = pd.Categorical(df['weekday'], categories=ordered_days, ordered=True)
-
-# Header
+# ------------------------ HEADER ------------------------
 st.title("📊 Dashboard Centralino CRI")
 
-# Statistiche principali
-st.header("Statistiche principali")
+# ------------------------ METRICHE GENERALI ------------------------
+st.header("📞 Metriche generali")
 
 total_calls = len(df)
 answered_calls = df['status'].eq('SERVED').sum()
@@ -72,124 +55,120 @@ col1.metric("Totale chiamate", f"{total_calls:,}")
 col2.metric("Risposte", f"{answered_calls:,}")
 col3.metric("Non risposte", f"{missed_calls:,}")
 
-col1, col2 = st.columns(2)
-col1.metric("Chiamanti unici", f"{unique_callers:,}")
-col2.metric("Minuti di conversazione", f"{total_conversation_min} min")
+col4, col5 = st.columns(2)
+col4.metric("Chiamanti unici", f"{unique_callers:,}")
+col5.metric("Minuti totali conversazione", f"{total_conversation_min} min")
 
 st.metric("⏱️ Attesa media", f"{avg_waiting_time_min} min")
 
-incoming_calls = df[df['direction'] == 'IN'].copy()
-incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
+# ------------------------ TEMPI E DURATE ------------------------
+st.header("⏱️ Tempi e Durate")
 
-# --- Analisi Richiamanti vs Clienti Persi ---
+response_rate = 100 * answered_calls / total_calls if total_calls else 0
+st.metric("📈 Tasso di risposta", f"{response_rate:.1f}%")
 
-# Consideriamo solo chiamate in ingresso
-incoming_calls = df[df['direction'] == 'IN'].copy()
-incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
+avg_answer_time = (df[df['status'] == 'SERVED']['answerTime'] - df[df['status'] == 'SERVED']['startTime']).dt.total_seconds().mean()
+if not np.isnan(avg_answer_time):
+    st.metric("🕐 Tempo medio alla risposta", f"{round(avg_answer_time / 60, 1)} min")
 
-# Seleziona la PRIMA chiamata NOTSERVED per ciascun chiamante
+avg_conversation_time = df[df['status'] == 'SERVED']['conversationTime'].mean()
+if not np.isnan(avg_conversation_time):
+    st.metric("🗣️ Durata media conversazione", f"{round(avg_conversation_time / 60, 1)} min")
+
+# ------------------------ RICHIAMANTI E CLIENTI PERSI ------------------------
+st.header("🔁 Richiamanti vs Clienti persi")
+
+incoming_calls = df[df['direction'] == 'IN'].copy().sort_values(by=['callerId', 'startTime'])
+
 first_nots = incoming_calls[incoming_calls['status'] == 'NOTSERVED'].sort_values('startTime')
 first_nots = first_nots.groupby('callerId').first().reset_index()
 
-# Inizializza contatori
 richiamanti = 0
 persi = 0
 
-# Loop su ogni prima NOTSERVED
 for _, row in first_nots.iterrows():
     caller = row['callerId']
     nots_time = row['startTime']
-    
-    # Seleziona tutte le chiamate future dello stesso numero
-    future_calls = incoming_calls[
-        (incoming_calls['callerId'] == caller) &
-        (incoming_calls['startTime'] > nots_time)
-    ]
-    
-    # Richiamante: almeno una SERVED entro 48 ore
-    within_48h = future_calls[
-        (future_calls['startTime'] <= nots_time + pd.Timedelta(hours=48)) &
-        (future_calls['status'] == 'SERVED')
-    ]
-    
+    future_calls = incoming_calls[(incoming_calls['callerId'] == caller) & (incoming_calls['startTime'] > nots_time)]
+    within_48h = future_calls[(future_calls['startTime'] <= nots_time + pd.Timedelta(hours=48)) & (future_calls['status'] == 'SERVED')]
     if not within_48h.empty:
         richiamanti += 1
         continue
-
-    # Cliente perso: nessuna chiamata entro 7 giorni
-    within_7d = future_calls[
-        future_calls['startTime'] <= nots_time + pd.Timedelta(days=7)
-    ]
-    
+    within_7d = future_calls[future_calls['startTime'] <= nots_time + pd.Timedelta(days=7)]
     if within_7d.empty:
         persi += 1
 
-# --- Calcolo metriche con gestione edge-case ---
 total_nots = len(first_nots)
+percent_richiamanti = 100 * richiamanti / total_nots if total_nots else 0
+percent_persi = 100 * persi / total_nots if total_nots else 0
 
-if total_nots > 0:
-    percent_richiamanti = 100 * richiamanti / total_nots
-    percent_persi = 100 * persi / total_nots
-else:
-    percent_richiamanti = 0
-    percent_persi = 0
+st.metric("🔁 Richiamanti entro 48h", f"{percent_richiamanti:.1f}% ({richiamanti})")
+st.metric("🚫 Clienti persi (>7gg)", f"{percent_persi:.1f}% ({persi})")
 
-# --- Visualizzazione delle metriche con valori assoluti ---
-st.metric("🔁 % Richiamanti entro 48h da NOTSERVED", f"{percent_richiamanti:.1f}%", f"{richiamanti} / {total_nots}")
-st.metric("🚫 % Clienti persi (>7 giorni senza richiamare)", f"{percent_persi:.1f}%", f"{persi} / {total_nots}")
+# ------------------------ DISTRIBUZIONI TEMPORALI ------------------------
+st.header("📆 Distribuzione chiamate")
 
-# --- Grafico riassuntivo Richiamanti vs Clienti Persi ---
-st.subheader("📉 Richiamanti vs Clienti Persi")
-summary_df = pd.DataFrame({
-    'Tipo': ['Richiamanti (entro 48h)', 'Clienti Persi (>7 giorni)'],
-    'Numero': [richiamanti, persi]
-})
-summary_df.set_index('Tipo', inplace=True)
-st.bar_chart(summary_df)
-
-# Conta chiamate per giorno della settimana ordinato
+st.subheader("Chiamate per giorno della settimana")
 calls_per_weekday = df['weekday'].value_counts().sort_index()
-
-# Grafico
-st.subheader("📅 Chiamate per giorno della settimana")
 st.bar_chart(calls_per_weekday)
 
-# Grafico risposte vs non risposte per giorno della settimana
-st.subheader("📅 Risposte vs Non risposte per giorno della settimana")
-status_per_weekday = df.groupby(['weekday', 'status']).size().unstack(fill_value=0).loc[ordered_days]
-st.bar_chart(status_per_weekday)
+st.subheader("Risposte vs Non risposte per giorno")
+status_per_day = df.groupby(['weekday', 'status']).size().unstack(fill_value=0).loc[ordered_days]
+st.bar_chart(status_per_day)
 
-# Grafico chiamate per ora del giorno
-st.subheader("📈 Chiamate per ora del giorno")
-df['hour'] = df['startTime'].dt.hour
+st.subheader("Chiamate per ora del giorno")
 calls_by_hour = df.groupby('hour').size()
 st.bar_chart(calls_by_hour)
 
-# Grafico risposte vs non risposte per ora della giornata
-st.subheader("🕐 Risposte vs Non risposte per ora della giornata")
-status_per_hour = df.groupby(['hour', 'status']).size().unstack(fill_value=0).sort_index()
-st.bar_chart(status_per_hour)
+st.subheader("Risposte vs Non risposte per ora")
+status_by_hour = df.groupby(['hour', 'status']).size().unstack(fill_value=0).sort_index()
+st.bar_chart(status_by_hour)
 
-# Grafico risposte vs non risposte
-st.subheader("✅ Risposte vs ❌ Non risposte")
-status_counts = df['status'].value_counts()
-st.bar_chart(status_counts)
+# ------------------------ ANALISI AVANZATE ------------------------
+st.header("📊 Analisi avanzate")
 
-# Tempo medio di attesa per ora
-st.subheader("⏱️ Tempo medio di attesa per ora")
-wait_by_hour = df.groupby('hour')['waitingTime'].mean() / 60  # minuti
+st.subheader("Distribuzione NON risposte per ora")
+missed_by_hour = df[df['status'] == 'NOTSERVED'].groupby('hour').size()
+st.bar_chart(missed_by_hour)
+
+st.subheader("⏱️ Attesa media per ora")
+wait_by_hour = df.groupby('hour')['waitingTime'].mean() / 60
 st.line_chart(wait_by_hour)
 
-# Analisi dei richiamanti
-st.subheader("🔁 Analisi dei richiamanti")
+st.subheader("⏳ Attesa media delle NON risposte")
+wait_nots = df[df['status'] == 'NOTSERVED']['waitingTime'] / 60
+if not wait_nots.empty:
+    st.metric("Attesa media (non risposte)", f"{round(wait_nots.mean(), 1)} min")
+
+# ------------------------ CHIAMANTI RICORRENTI ------------------------
+st.header("👥 Analisi chiamanti")
+
+st.subheader("Top 10 chiamanti ricorrenti")
+top_callers = df['callerId'].value_counts().head(10)
+st.bar_chart(top_callers)
+
+st.subheader("Ripetizione chiamate (fino a 5)")
 repeat_calls = df.groupby('callerId').size().reset_index(name='num_calls')
 repeat_stats = repeat_calls[repeat_calls['num_calls'] <= 5]['num_calls'].value_counts().sort_index()
 st.bar_chart(repeat_stats)
 
-# Analisi "tempo fino alla risposta"
-st.subheader("⏳ Tempo medio fino alla risposta per richiamata")
+# ------------------------ ANALISI RICHIAMO ------------------------
+st.header("🔄 Analisi richiami")
+
 answered_df = df[df['status'] == 'SERVED'].sort_values(by='startTime')
 answered_df['prev_call_time'] = answered_df.groupby('callerId')['startTime'].shift(1)
 answered_df['delta_to_answer'] = (answered_df['answerTime'] - answered_df['prev_call_time']).dt.total_seconds()
 avg_delta = round(answered_df['delta_to_answer'].mean(skipna=True) / 60, 1)
-st.metric("⏱️ Tempo medio tra tentativi fino a risposta", f"{avg_delta} minuti")
+st.metric("Tempo medio tra tentativi → risposta", f"{avg_delta} min")
+
+# ------------------------ HEATMAP E DESTINAZIONI ------------------------
+st.header("🧭 Distribuzione avanzata")
+
+st.subheader("Heatmap chiamate giorno × ora")
+pivot_heatmap = df.pivot_table(index='weekday', columns='hour', values='callerId', aggfunc='count', fill_value=0)
+st.dataframe(pivot_heatmap)
+
+st.subheader("Durata media per destinazione")
+conversation_by_dest = df[df['status'] == 'SERVED'].groupby('detailDestinationName')['conversationTime'].mean() / 60
+conversation_by_dest = conversation_by_dest.sort_values(ascending=False)
+st.bar_chart(conversation_by_dest)
