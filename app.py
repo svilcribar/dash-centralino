@@ -158,8 +158,25 @@ repeat_calls = df.groupby('callerId').size().reset_index(name='num_calls')
 repeat_stats = repeat_calls[repeat_calls['num_calls'] <= 5]['num_calls'].value_counts().sort_index()
 st.bar_chart(repeat_stats)
 
-# ------------------------ ANALISI RICHIAMO ------------------------
-st.header("🔄 Analisi richiami")
+# 🔄 Analisi richiami
+st.subheader("🔄 Analisi richiami")
+
+# Tempo medio in ore tra i tentativi fino a risposta
+answered_df = df[df['status'] == 'SERVED'].sort_values(by='startTime')
+answered_df['prev_call_time'] = answered_df.groupby('callerId')['startTime'].shift(1)
+answered_df['delta_to_answer'] = (answered_df['answerTime'] - answered_df['prev_call_time']).dt.total_seconds()
+
+avg_delta_hr = round(answered_df['delta_to_answer'].mean(skipna=True) / 3600, 2)
+st.metric("⏱️ Tempo medio tra tentativi fino a risposta", f"{avg_delta_hr} h")
+
+# Grafico: distribuzione dei tempi di richiamo in blocchi di 6 ore
+delta_hours = answered_df['delta_to_answer'].dropna() / 3600
+bins = [0, 6, 12, 18, 24, 30, 36, 42, 48, 72, np.inf]
+labels = ['0–6h', '6–12h', '12–18h', '18–24h', '24–30h', '30–36h', '36–42h', '42–48h', '48–72h', '72h+']
+binned = pd.cut(delta_hours, bins=bins, labels=labels, right=False)
+bin_counts = binned.value_counts().sort_index()
+
+st.bar_chart(bin_counts)
 
 answered_df = df[df['status'] == 'SERVED'].sort_values(by='startTime')
 answered_df['prev_call_time'] = answered_df.groupby('callerId')['startTime'].shift(1)
