@@ -53,7 +53,7 @@ total_calls = len(df)
 answered_calls = df['status'].eq('SERVED').sum()
 missed_calls = total_calls - answered_calls
 unique_callers = df['callerId'].nunique()
-total_conversation_min = round(df['conversationTime'].sum() / 60, 1)
+total_conversation_hr = round(df['conversationTime'].sum() / 3600, 2)
 avg_waiting_time_min = round(df['waitingTime'].mean() / 60, 1)
 
 col1, col2, col3 = st.columns(3)
@@ -63,7 +63,7 @@ col3.metric("Non risposte", f"{missed_calls:,}")
 
 col4, col5 = st.columns(2)
 col4.metric("Chiamanti unici", f"{unique_callers:,}")
-col5.metric("Minuti totali conversazione", f"{total_conversation_min} min")
+col5.metric("Minuti totali conversazione", f"{total_conversation_hr} h")
 
 st.metric("⏱️ Attesa media", f"{avg_waiting_time_min} min")
 
@@ -164,8 +164,8 @@ st.header("🔄 Analisi richiami")
 answered_df = df[df['status'] == 'SERVED'].sort_values(by='startTime')
 answered_df['prev_call_time'] = answered_df.groupby('callerId')['startTime'].shift(1)
 answered_df['delta_to_answer'] = (answered_df['answerTime'] - answered_df['prev_call_time']).dt.total_seconds()
-avg_delta = round(answered_df['delta_to_answer'].mean(skipna=True) / 60, 1)
-st.metric("Tempo medio tra tentativi → risposta", f"{avg_delta} min")
+avg_delta_hr = round(answered_df['delta_to_answer'].mean(skipna=True) / 3600, 2)
+st.metric("⏱️ Tempo medio tra tentativi fino a risposta", f"{avg_delta_hr} h")
 
 # ------------------------ HEATMAP E DESTINAZIONI ------------------------
 st.header("🧭 Distribuzione avanzata")
