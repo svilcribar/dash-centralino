@@ -77,9 +77,7 @@ st.bar_chart(calls_per_weekday)
 
 # Grafico risposte vs non risposte per giorno della settimana
 st.subheader("📅 Risposte vs Non risposte per giorno della settimana")
-status_per_weekday = df.groupby(['weekday', 'status']).size().unstack(fill_value=0).reindex(
-    ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica']
-)
+status_per_weekday = df.groupby(['weekday', 'status']).size().unstack(fill_value=0).loc[ordered_days]
 st.bar_chart(status_per_weekday)
 
 # Header
