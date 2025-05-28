@@ -1,76 +1,78 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import numpy as np
 from datetime import datetime
 
-st.set_page_config(page_title="Dashboard Centralino", layout="wide")
-
+# Funzione per caricare i dati da Google Sheets
 @st.cache_data
 def load_data():
-    url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQEZKp2LMZ2uwMGgfvRDGuz8UeTVGscXGBt2UoQxBhBDdOqZ-fGWB23fqZCr5vRUTcYYbDgfXZGP1hN/pub?output=csv"
-    df = pd.read_csv(url, parse_dates=["startTime", "answerTime", "endTime", "detailEnterTime", "detailAnswerTime", "detailExitTime"])
+    sheet_id = "1Vq7n1KaJzm_14lMrtkgzS9lkBgZ-1ddIZiwkPO9r7zE"
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+
+    # Colonne da interpretare come date
+    date_columns = [
+        "startTime", "answerTime", "endTime",
+        "detailEnterTime", "detailAnswerTime", "detailExitTime"
+    ]
+
+    df = pd.read_csv(sheet_url, parse_dates=date_columns)
     return df
 
+# Carica i dati
 df = load_data()
 
-# FILTRI
-st.sidebar.title("Filtri")
-data_min, data_max = df["startTime"].min(), df["startTime"].max()
-intervallo_date = st.sidebar.date_input("Intervallo date", [data_min.date(), data_max.date()])
+# Header
+st.title("📊 Dashboard Centralino CRI")
 
-status = st.sidebar.multiselect("Status", options=df["status"].unique(), default=list(df["status"].unique()))
-dest = st.sidebar.multiselect("Destinazione", options=df["detailDestinationName"].dropna().unique(), default=list(df["detailDestinationName"].dropna().unique()))
+# Statistiche principali
+st.header("Statistiche principali")
 
-filtri = (
-    (df["startTime"].dt.date >= intervallo_date[0]) &
-    (df["startTime"].dt.date <= intervallo_date[1]) &
-    (df["status"].isin(status)) &
-    (df["detailDestinationName"].isin(dest))
-)
-df_filt = df[filtri]
+total_calls = len(df)
+answered_calls = df['status'].eq('SERVED').sum()
+missed_calls = total_calls - answered_calls
+unique_callers = df['callerId'].nunique()
+total_conversation_sec = df['conversationTime'].sum()
+total_conversation_hr = round(total_conversation_sec / 3600, 1)
+avg_waiting_time_sec = round(df['waitingTime'].mean(), 1)
 
-# STATISTICHE
-st.title("📞 Dashboard Chiamate Centralino")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Totale chiamate", len(df_filt))
-col2.metric("Chiamate risposte", (df_filt["status"] == "SERVED").sum())
-col3.metric("Chiamate non risposte", (df_filt["status"] != "SERVED").sum())
-col4.metric("Chiamanti unici", df_filt["callerId"].nunique())
+col1, col2, col3 = st.columns(3)
+col1.metric("Totale chiamate", f"{total_calls:,}")
+col2.metric("Risposte", f"{answered_calls:,}")
+col3.metric("Non risposte", f"{missed_calls:,}")
 
-tempo_conv_sec = df_filt["conversationTime"].sum()
-tempo_conv_ore = round(tempo_conv_sec / 3600, 1)
-tempo_att_medio = round(df_filt["waitingTime"].mean(), 1)
+col1, col2 = st.columns(2)
+col1.metric("Chiamanti unici", f"{unique_callers:,}")
+col2.metric("Ore di conversazione", f"{total_conversation_hr} h")
 
-col5, col6 = st.columns(2)
-col5.metric("🕒 Tempo totale di conversazione", f"{tempo_conv_ore} h")
-col6.metric("⏱️ Tempo medio di attesa", f"{tempo_att_medio} sec")
+st.metric("⏱️ Attesa media", f"{avg_waiting_time_sec} s")
 
-# GRAFICI
-st.subheader("📊 Andamento delle chiamate")
-df_filt["ora"] = df_filt["startTime"].dt.hour
+# Grafico chiamate per ora
+st.subheader("📈 Chiamate per ora del giorno")
+df['hour'] = df['startTime'].dt.hour
+calls_by_hour = df.groupby('hour').size()
+st.bar_chart(calls_by_hour)
 
-fig1 = px.histogram(df_filt, x="ora", title="Numero di chiamate per ora", nbins=24)
-fig2 = px.pie(df_filt, names="status", title="Distribuzione Risposte vs Non Risposte")
+# Grafico risposte vs non risposte
+st.subheader("✅ Risposte vs ❌ Non risposte")
+status_counts = df['status'].value_counts()
+st.bar_chart(status_counts)
 
-attesa_ora = df_filt.groupby("ora")["waitingTime"].mean().reset_index()
-fig3 = px.line(attesa_ora, x="ora", y="waitingTime", title="Tempo medio di attesa per ora")
+# Tempo medio di attesa per ora
+st.subheader("⏱️ Tempo medio di attesa per ora")
+wait_by_hour = df.groupby('hour')['waitingTime'].mean()
+st.line_chart(wait_by_hour)
 
-st.plotly_chart(fig1, use_container_width=True)
-st.plotly_chart(fig2, use_container_width=True)
-st.plotly_chart(fig3, use_container_width=True)
+# Analisi dei richiamanti
+st.subheader("🔁 Analisi dei richiamanti")
+repeat_calls = df.groupby('callerId').size().reset_index(name='num_calls')
+repeat_stats = repeat_calls['num_calls'].value_counts().sort_index()
+st.bar_chart(repeat_stats)
 
-# 🔁 ANALISI RICHIAMANTI
-st.subheader("🔁 Analisi dei Richiamanti")
-richiami = df_filt.sort_values("startTime").groupby("callerId")["startTime"].apply(list)
-tempi_richiamo = richiami.apply(lambda x: [(x[i+1] - x[i]).total_seconds() for i in range(len(x)-1)] if len(x) > 1 else []).explode().dropna()
+# Analisi "tempo fino alla risposta"
+st.subheader("⏳ Tempo medio fino alla risposta per richiamata")
+answered_df = df[df['status'] == 'SERVED'].sort_values(by='startTime')
+answered_df['prev_call_time'] = answered_df.groupby('callerId')['startTime'].shift(1)
+answered_df['delta_to_answer'] = (answered_df['answerTime'] - answered_df['prev_call_time']).dt.total_seconds()
+avg_delta = round(answered_df['delta_to_answer'].mean(skipna=True) / 60, 1)
+st.metric("⏱️ Tempo medio tra tentativi fino a risposta", f"{avg_delta} minuti")
 
-media_richiamo_sec = round(tempi_richiamo.mean(), 1)
-col7, col8 = st.columns(2)
-col7.metric("Richiamanti multipli", (richiami.apply(len) > 1).sum())
-col8.metric("⏱️ Tempo medio tra richiami", f"{media_richiamo_sec} sec")
-
-# 🔽 TABELLA
-st.subheader("📋 Dati filtrati")
-st.dataframe(df_filt.head(100))
-
-st.download_button("📥 Scarica CSV", df_filt.to_csv(index=False).encode("utf-8"), file_name="chiamate_filtrate.csv")
