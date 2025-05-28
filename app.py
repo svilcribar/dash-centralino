@@ -78,20 +78,50 @@ col2.metric("Minuti di conversazione", f"{total_conversation_min} min")
 
 st.metric("⏱️ Attesa media", f"{avg_waiting_time_min} min")
 
-# KPI: Percentuale utenti che richiamano dopo una NOTSERVED e ottengono SERVED
-incoming_calls = df[df['direction'] == 'IN'].copy()
-incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
+# --- Analisi Richiamanti vs Clienti Persi ---
 
-results = []
-for caller, group in incoming_calls.groupby('callerId'):
-    statuses = group['status'].tolist()
-    if 'NOTSERVED' in statuses and 'SERVED' in statuses:
-        results.append(1)
-    else:
-        results.append(0)
+# Seleziona prime chiamate NOTSERVED
+first_nots = incoming_calls[incoming_calls['status'] == 'NOTSERVED'].sort_values('startTime')
+first_nots = first_nots.groupby('callerId').first().reset_index()
 
-percent_recall_success = 100 * sum(results) / len(results) if results else 0
-st.metric("📈 % utenti che richiamano dopo NOTSERVED e ricevono risposta", f"{percent_recall_success:.1f}%")
+richiamanti = 0
+persi = 0
+
+for _, row in first_nots.iterrows():
+    caller = row['callerId']
+    nots_time = row['startTime']
+    
+    # Tutte le chiamate successive dello stesso chiamante
+    future_calls = incoming_calls[
+        (incoming_calls['callerId'] == caller) &
+        (incoming_calls['startTime'] > nots_time)
+    ]
+    
+    # Se richiama entro 48h con una SERVED
+    within_48h = future_calls[
+        (future_calls['startTime'] <= nots_time + pd.Timedelta(hours=48)) &
+        (future_calls['status'] == 'SERVED')
+    ]
+    
+    if not within_48h.empty:
+        richiamanti += 1
+        continue
+
+    # Se NESSUNA chiamata entro 7 giorni → cliente perso
+    within_7d = future_calls[
+        future_calls['startTime'] <= nots_time + pd.Timedelta(days=7)
+    ]
+    
+    if within_7d.empty:
+        persi += 1
+
+total_nots = len(first_nots)
+percent_richiamanti = 100 * richiamanti / total_nots if total_nots else 0
+percent_persi = 100 * persi / total_nots if total_nots else 0
+
+st.metric("🔁 % Richiamanti entro 48h da NOTSERVED", f"{percent_richiamanti:.1f}%")
+st.metric("🚫 % Clienti persi (>7 giorni senza richiamare)", f"{percent_persi:.1f}%")
+
 
 # Conta chiamate per giorno della settimana ordinato
 calls_per_weekday = df['weekday'].value_counts().sort_index()
