@@ -39,6 +39,33 @@ df = df[
     (df['detailDestinationName'].isin(selected_destinations))
 ]
 
+
+
+# Header
+st.title("📊 Dashboard Centralino CRI")
+
+# Statistiche principali
+st.header("Statistiche principali")
+
+total_calls = len(df)
+answered_calls = df['status'].eq('SERVED').sum()
+missed_calls = total_calls - answered_calls
+unique_callers = df['callerId'].nunique()
+total_conversation_sec = df['conversationTime'].sum()
+total_conversation_hr = round(total_conversation_sec / 3600, 1)
+avg_waiting_time_sec = round(df['waitingTime'].mean(), 1)
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Totale chiamate", f"{total_calls:,}")
+col2.metric("Risposte", f"{answered_calls:,}")
+col3.metric("Non risposte", f"{missed_calls:,}")
+
+col1, col2 = st.columns(2)
+col1.metric("Chiamanti unici", f"{unique_callers:,}")
+col2.metric("Ore di conversazione", f"{total_conversation_hr} h")
+
+st.metric("⏱️ Attesa media", f"{avg_waiting_time_sec} s")
+
 # KPI: Percentuale utenti che richiamano dopo una NOTSERVED e ottengono SERVED
 # Considera solo chiamate in ingresso (IN)
 incoming_calls = df[df['direction'] == 'IN'].copy()
@@ -69,40 +96,16 @@ calls_per_weekday = df['weekday'].value_counts().reindex(
     ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 ).fillna(0)
 
-# Grafico
-st.subheader("📅 Chiamate per giorno della settimana")
-st.bar_chart(calls_per_weekday)
-
 day_map = {
     'Monday': 'Lunedì', 'Tuesday': 'Martedì', 'Wednesday': 'Mercoledì',
     'Thursday': 'Giovedì', 'Friday': 'Venerdì', 'Saturday': 'Sabato', 'Sunday': 'Domenica'
 }
 df['weekday'] = df['startTime'].dt.day_name().map(day_map)
 
-# Header
-st.title("📊 Dashboard Centralino CRI")
+# Grafico
+st.subheader("📅 Chiamate per giorno della settimana")
+st.bar_chart(calls_per_weekday)
 
-# Statistiche principali
-st.header("Statistiche principali")
-
-total_calls = len(df)
-answered_calls = df['status'].eq('SERVED').sum()
-missed_calls = total_calls - answered_calls
-unique_callers = df['callerId'].nunique()
-total_conversation_sec = df['conversationTime'].sum()
-total_conversation_hr = round(total_conversation_sec / 3600, 1)
-avg_waiting_time_sec = round(df['waitingTime'].mean(), 1)
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Totale chiamate", f"{total_calls:,}")
-col2.metric("Risposte", f"{answered_calls:,}")
-col3.metric("Non risposte", f"{missed_calls:,}")
-
-col1, col2 = st.columns(2)
-col1.metric("Chiamanti unici", f"{unique_callers:,}")
-col2.metric("Ore di conversazione", f"{total_conversation_hr} h")
-
-st.metric("⏱️ Attesa media", f"{avg_waiting_time_sec} s")
 
 # Grafico chiamate per ora
 st.subheader("📈 Chiamate per ora del giorno")
