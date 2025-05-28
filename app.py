@@ -83,24 +83,30 @@ incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
 
 # --- Analisi Richiamanti vs Clienti Persi ---
 
-# Seleziona prime chiamate NOTSERVED
+# Consideriamo solo chiamate in ingresso
+incoming_calls = df[df['direction'] == 'IN'].copy()
+incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
+
+# Seleziona la PRIMA chiamata NOTSERVED per ciascun chiamante
 first_nots = incoming_calls[incoming_calls['status'] == 'NOTSERVED'].sort_values('startTime')
 first_nots = first_nots.groupby('callerId').first().reset_index()
 
+# Inizializza contatori
 richiamanti = 0
 persi = 0
 
+# Loop su ogni prima NOTSERVED
 for _, row in first_nots.iterrows():
     caller = row['callerId']
     nots_time = row['startTime']
     
-    # Tutte le chiamate successive dello stesso chiamante
+    # Seleziona tutte le chiamate future dello stesso numero
     future_calls = incoming_calls[
         (incoming_calls['callerId'] == caller) &
         (incoming_calls['startTime'] > nots_time)
     ]
     
-    # Se richiama entro 48h con una SERVED
+    # Richiamante: almeno una SERVED entro 48 ore
     within_48h = future_calls[
         (future_calls['startTime'] <= nots_time + pd.Timedelta(hours=48)) &
         (future_calls['status'] == 'SERVED')
@@ -110,7 +116,7 @@ for _, row in first_nots.iterrows():
         richiamanti += 1
         continue
 
-    # Se NESSUNA chiamata entro 7 giorni → cliente perso
+    # Cliente perso: nessuna chiamata entro 7 giorni
     within_7d = future_calls[
         future_calls['startTime'] <= nots_time + pd.Timedelta(days=7)
     ]
@@ -118,13 +124,28 @@ for _, row in first_nots.iterrows():
     if within_7d.empty:
         persi += 1
 
+# --- Calcolo metriche con gestione edge-case ---
 total_nots = len(first_nots)
-percent_richiamanti = 100 * richiamanti / total_nots if total_nots else 0
-percent_persi = 100 * persi / total_nots if total_nots else 0
 
-st.metric("🔁 % Richiamanti entro 48h da NOTSERVED", f"{percent_richiamanti:.1f}%")
-st.metric("🚫 % Clienti persi (>7 giorni senza richiamare)", f"{percent_persi:.1f}%")
+if total_nots > 0:
+    percent_richiamanti = 100 * richiamanti / total_nots
+    percent_persi = 100 * persi / total_nots
+else:
+    percent_richiamanti = 0
+    percent_persi = 0
 
+# --- Visualizzazione delle metriche con valori assoluti ---
+st.metric("🔁 % Richiamanti entro 48h da NOTSERVED", f"{percent_richiamanti:.1f}%", f"{richiamanti} / {total_nots}")
+st.metric("🚫 % Clienti persi (>7 giorni senza richiamare)", f"{percent_persi:.1f}%", f"{persi} / {total_nots}")
+
+# --- Grafico riassuntivo Richiamanti vs Clienti Persi ---
+st.subheader("📉 Richiamanti vs Clienti Persi")
+summary_df = pd.DataFrame({
+    'Tipo': ['Richiamanti (entro 48h)', 'Clienti Persi (>7 giorni)'],
+    'Numero': [richiamanti, persi]
+})
+summary_df.set_index('Tipo', inplace=True)
+st.bar_chart(summary_df)
 
 # Conta chiamate per giorno della settimana ordinato
 calls_per_weekday = df['weekday'].value_counts().sort_index()
