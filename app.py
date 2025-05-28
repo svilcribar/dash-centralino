@@ -21,6 +21,64 @@ def load_data():
 # Carica i dati
 df = load_data()
 
+# Filtro: intervallo di date
+st.sidebar.header("🔍 Filtri")
+
+min_date = df['startTime'].min().date()
+max_date = df['startTime'].max().date()
+start_date, end_date = st.sidebar.date_input("📅 Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
+
+# Filtro: destinazione
+destinations = df['detailDestinationName'].dropna().unique()
+selected_destinations = st.sidebar.multiselect("🎯 Destinazioni", sorted(destinations), default=sorted(destinations))
+
+# Applica i filtri
+df = df[
+    (df['startTime'].dt.date >= start_date) &
+    (df['startTime'].dt.date <= end_date) &
+    (df['detailDestinationName'].isin(selected_destinations))
+]
+
+# KPI: Percentuale utenti che richiamano dopo una NOTSERVED e ottengono SERVED
+# Considera solo chiamate in ingresso (IN)
+incoming_calls = df[df['direction'] == 'IN'].copy()
+
+# Ordina per chiamante e tempo
+incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
+
+# Per ogni chiamante, troviamo se una NOTSERVED è seguita da una SERVED
+results = []
+seen_callers = set()
+
+for caller, group in incoming_calls.groupby('callerId'):
+    statuses = group['status'].tolist()
+    if 'NOTSERVED' in statuses and 'SERVED' in statuses:
+        results.append(1)
+    else:
+        results.append(0)
+
+# KPI finale
+percent_recall_success = 100 * sum(results) / len(results) if results else 0
+st.metric("📈 % utenti che richiamano dopo NOTSERVED e ricevono risposta", f"{percent_recall_success:.1f}%")
+
+# Aggiungi colonna con giorno della settimana
+df['weekday'] = df['startTime'].dt.day_name()
+
+# Conta chiamate per giorno
+calls_per_weekday = df['weekday'].value_counts().reindex(
+    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+).fillna(0)
+
+# Grafico
+st.subheader("📅 Chiamate per giorno della settimana")
+st.bar_chart(calls_per_weekday)
+
+day_map = {
+    'Monday': 'Lunedì', 'Tuesday': 'Martedì', 'Wednesday': 'Mercoledì',
+    'Thursday': 'Giovedì', 'Friday': 'Venerdì', 'Saturday': 'Sabato', 'Sunday': 'Domenica'
+}
+df['weekday'] = df['startTime'].dt.day_name().map(day_map)
+
 # Header
 st.title("📊 Dashboard Centralino CRI")
 
