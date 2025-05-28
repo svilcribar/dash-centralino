@@ -78,6 +78,9 @@ col2.metric("Minuti di conversazione", f"{total_conversation_min} min")
 
 st.metric("⏱️ Attesa media", f"{avg_waiting_time_min} min")
 
+incoming_calls = df[df['direction'] == 'IN'].copy()
+incoming_calls.sort_values(by=['callerId', 'startTime'], inplace=True)
+
 # --- Analisi Richiamanti vs Clienti Persi ---
 
 # Seleziona prime chiamate NOTSERVED
