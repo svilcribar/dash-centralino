@@ -111,6 +111,11 @@ df['hour'] = df['startTime'].dt.hour
 calls_by_hour = df.groupby('hour').size()
 st.bar_chart(calls_by_hour)
 
+# Grafico risposte vs non risposte per ora della giornata
+st.subheader("🕐 Risposte vs Non risposte per ora della giornata")
+status_per_hour = df.groupby(['hour', 'status']).size().unstack(fill_value=0).sort_index()
+st.bar_chart(status_per_hour)
+
 # Grafico risposte vs non risposte
 st.subheader("✅ Risposte vs ❌ Non risposte")
 status_counts = df['status'].value_counts()
